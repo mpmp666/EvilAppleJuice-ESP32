@@ -42,4 +42,14 @@ jobs:
           
       - name: Compile for ESP32-S3
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32s3 ./src/EvilAppleJuice-ESP32-INO
+          BUILD_DIR=build
+          mkdir -p "$BUILD_DIR"
+          arduino-cli compile --fqbn esp32:esp32:esp32s3 --build-path "$BUILD_DIR" ./src/EvilAppleJuice-ESP32-INO
+          echo "Build artifacts:"
+          find "$BUILD_DIR" -maxdepth 4 -type f -print || true
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: evil-apple-juice-firmware
+          path: build
