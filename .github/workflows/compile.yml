@@ -1,4 +1,4 @@
-name: Compile EvilAppleJuice for ESP32-S3 (curl install)
+name: Compile EvilAppleJuice for ESP32-S3
 
 on:
   push:
@@ -19,7 +19,6 @@ jobs:
 
       - name: Install arduino-cli (curl install -> put binary in $HOME/.local/bin)
         run: |
-          # 确保目标目录存在，否则安装脚本会失败
           mkdir -p $HOME/.local/bin
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=$HOME/.local/bin sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -31,7 +30,7 @@ jobs:
           which arduino-cli || true
           arduino-cli version
 
-      - name: Configure arduino-cli
+      - name: Configure arduino-cli (add ESP32 board index)
         run: |
           arduino-cli config init
           arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
@@ -40,7 +39,7 @@ jobs:
         run: |
           arduino-cli core update-index
           arduino-cli core install esp32:esp32
-
+          
       - name: Compile for ESP32-S3
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32s3 .
+          arduino-cli compile --fqbn esp32:esp32:esp32s3 ./src/EvilAppleJuice-ESP32-INO
