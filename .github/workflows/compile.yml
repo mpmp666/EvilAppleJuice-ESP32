@@ -1,4 +1,4 @@
-name: Compile EvilAppleJuice for ESP32-S3
+name: Compile EvilAppleJuice for ESP32-S3 (curl install)
 
 on:
   push:
@@ -19,6 +19,8 @@ jobs:
 
       - name: Install arduino-cli (curl install -> put binary in $HOME/.local/bin)
         run: |
+          # 确保目标目录存在，否则安装脚本会失败
+          mkdir -p $HOME/.local/bin
           curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=$HOME/.local/bin sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
