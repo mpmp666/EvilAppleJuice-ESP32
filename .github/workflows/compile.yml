@@ -1,4 +1,4 @@
-name: Compile EvilAppleJuice for ESP32-S3
+name: Compile EvilAppleJuice for ESP32-S3 (setup action)
 
 on:
   push:
@@ -16,10 +16,13 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install arduino-cli
-      run: |
-        curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
-        echo "$HOME/bin" >> $GITHUB_PATH
+    - name: Setup arduino-cli (action)
+      uses: arduino/setup-arduino-cli@v1
+      with:
+        version: 'latest' # pin a specific version for reproducibility if desired
+
+    - name: Verify arduino-cli
+      run: arduino-cli version
 
     - name: Configure arduino-cli
       run: |
