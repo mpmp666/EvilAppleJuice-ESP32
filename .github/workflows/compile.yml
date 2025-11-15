@@ -1,4 +1,4 @@
-name: Compile EvilAppleJuice for ESP32-S3 (setup action)
+name: Compile EvilAppleJuice for ESP32-S3
 
 on:
   push:
@@ -14,26 +14,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Setup arduino-cli (action)
-      uses: arduino/setup-arduino-cli@v1
-      with:
-        version: 'latest' # pin a specific version for reproducibility if desired
+      - name: Install arduino-cli (curl install -> put binary in $HOME/.local/bin)
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=$HOME/.local/bin sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-    - name: Verify arduino-cli
-      run: arduino-cli version
+      - name: Verify arduino-cli is on PATH
+        run: |
+          echo "PATH=$PATH"
+          ls -la $HOME/.local/bin || true
+          which arduino-cli || true
+          arduino-cli version
 
-    - name: Configure arduino-cli
-      run: |
-        arduino-cli config init
-        arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+      - name: Configure arduino-cli
+        run: |
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-    - name: Install ESP32 core
-      run: |
-        arduino-cli core update-index
-        arduino-cli core install esp32:esp32
+      - name: Install ESP32 core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
 
-    - name: Compile for ESP32-S3
-      run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32s3 .
+      - name: Compile for ESP32-S3
+        run: |
+          arduino-cli compile --fqbn esp32:esp32:esp32s3 .
